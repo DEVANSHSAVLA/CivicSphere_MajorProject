@@ -9,7 +9,7 @@ from app.database import get_database
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODELS = ["text-embedding-004", "models/text-embedding-004"]
+EMBEDDING_MODELS = ["models/gemini-embedding-001", "models/gemini-embedding-2", "text-embedding-004"]
 
 def get_embedding_client():
     if not settings.GEMINI_API_KEY:
