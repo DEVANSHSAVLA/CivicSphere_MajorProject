@@ -10,3 +10,5 @@ pymongo>=4.10.0
 google-genai>=2.30.0
 python-multipart>=0.0.20
 pypdf>=5.0.0
+cloudinary>=1.47.0
+numpy>=2.0.0

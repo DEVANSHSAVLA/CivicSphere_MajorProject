@@ -100,6 +100,24 @@ export const authService = {
   },
 
   /**
+   * Uploads avatar photo to Cloudinary CDN with automatic face-detection crop.
+   */
+  async uploadAvatar(file) {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await apiClient.post("/api/auth/avatar", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data;
+    } catch (error) {
+      const detail =
+        error.response?.data?.detail || "Failed to upload avatar.";
+      throw new Error(detail, { cause: error });
+    }
+  },
+
+  /**
    * Updates password securely on backend with Argon2 verification.
    */
   async changePassword(currentPassword, newPassword) {

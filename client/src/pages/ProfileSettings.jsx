@@ -17,7 +17,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 
 export default function ProfileSettings() {
-  const { user, updateProfile, changePassword } = useAuth();
+  const { user, updateProfile, changePassword, uploadAvatar } = useAuth();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState("profile"); // 'profile' | 'password' | 'notifications' | 'privacy'
@@ -92,19 +92,26 @@ export default function ProfileSettings() {
     }
   };
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) {
-      showToast("Photo must be smaller than 3MB.", "error");
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Photo must be smaller than 5MB.", "error");
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setProfileData((prev) => ({ ...prev, avatar: reader.result }));
-      showToast("Photo selected! Click 'Save Changes' to update.", "info");
-    };
-    reader.readAsDataURL(file);
+    try {
+      showToast("Uploading and optimizing photo...", "info");
+      const res = await uploadAvatar(file);
+      setProfileData((prev) => ({ ...prev, avatar: res.avatarUrl }));
+      showToast(
+        res.storage === "cloudinary"
+          ? "Avatar optimized with face detection and saved to Cloudinary!"
+          : "Profile photo updated successfully!",
+        "success"
+      );
+    } catch (err) {
+      showToast(err.message || "Failed to upload avatar", "error");
+    }
   };
 
   const handleRemovePhoto = () => {

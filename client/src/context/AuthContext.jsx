@@ -82,6 +82,14 @@ export function AuthProvider({ children }) {
     return updatedUser;
   };
 
+  const uploadAvatar = async (file) => {
+    const res = await authService.uploadAvatar(file);
+    if (res.user) {
+      setUser(res.user);
+    }
+    return res;
+  };
+
   const changePassword = async (curr, next) => {
     return await authService.changePassword(curr, next);
   };
@@ -97,6 +105,7 @@ export function AuthProvider({ children }) {
         logout,
         googleLogin,
         updateProfile,
+        uploadAvatar,
         changePassword,
       }}
     >

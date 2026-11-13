@@ -64,7 +64,11 @@ export default function MyDocuments() {
   };
 
   const handleDownload = (doc) => {
-    showToast(`Downloading demo copy of ${doc.name}...`, "info");
+    if (doc.downloadUrl && doc.downloadUrl !== "#") {
+      window.open(doc.downloadUrl, "_blank");
+    } else {
+      showToast(`Downloading "${doc.name}"... Add Cloudinary credentials in server/.env for global CDN storage.`, "info");
+    }
   };
 
   return (

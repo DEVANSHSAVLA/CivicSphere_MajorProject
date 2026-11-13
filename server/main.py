@@ -3,12 +3,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db, close_db, get_database
-from app.routers import auth, chat, documents
+from app.routers import auth, chat, documents, schemes, legal, civic_knowledge
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize MongoDB connection, indexes, and seed data
     await init_db()
+    # Auto-seed canonical statutes into MongoDB vector store for RAG
+    try:
+        from app.services.rag_service import seed_canonical_statutes_for_rag
+        await seed_canonical_statutes_for_rag()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not auto-seed RAG statutes: {e}")
     yield
     # Graceful shutdown
     await close_db()
@@ -35,6 +42,9 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
+app.include_router(schemes.router)
+app.include_router(legal.router)
+app.include_router(civic_knowledge.router)
 
 @app.get("/")
 async def root():

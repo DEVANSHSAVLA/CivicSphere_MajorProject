@@ -1,6 +1,7 @@
+import base64
 import uuid
 from datetime import timedelta
-from fastapi import APIRouter, Response, Request, HTTPException, status, Depends
+from fastapi import APIRouter, Response, Request, HTTPException, status, Depends, UploadFile, File
 from app.config import settings
 from app.schemas import (
     RegisterRequest,
@@ -26,6 +27,7 @@ from app.database import (
     update_user_password,
 )
 from app.dependencies import get_current_user
+from app.services.cloudinary_service import upload_avatar_to_cloudinary
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -279,6 +281,47 @@ async def update_profile(
         message="Profile updated successfully.",
         user=UserResponse(**user_dict)
     )
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Uploads a user avatar image to Cloudinary with automatic face-detection cropping (300x300).
+    Saves the transformed CDN URL to the user document in MongoDB.
+    """
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Avatar image size exceeds 5MB limit."
+        )
+
+    cdn_result = upload_avatar_to_cloudinary(contents, current_user["id"])
+    avatar_url = cdn_result.get("secure_url")
+
+    # If Cloudinary is not yet configured or returned empty, create base64 fallback
+    if not avatar_url:
+        ext = file.filename.split(".")[-1].lower() if "." in file.filename else "jpeg"
+        b64 = base64.b64encode(contents).decode("utf-8")
+        avatar_url = f"data:image/{ext};base64,{b64}"
+
+    updated = await update_user_profile(
+        user_id=current_user["id"],
+        name=current_user.get("name", ""),
+        phone=current_user.get("phone", ""),
+        avatar=avatar_url
+    )
+    user_dict = dict(updated)
+    user_dict.pop("hashed_password", None)
+
+    return {
+        "status": "success",
+        "avatarUrl": avatar_url,
+        "storage": cdn_result.get("storage", "local"),
+        "user": UserResponse(**user_dict)
+    }
 
 @router.post("/change-password")
 async def change_password(

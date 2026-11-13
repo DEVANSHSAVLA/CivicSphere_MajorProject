@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Sparkles,
   MessageSquare,
+  Download,
 } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
 import Button from "../components/common/Button";
@@ -331,6 +332,18 @@ export default function UploadDocuments() {
                 This document is now grounded in your civic intelligence context.
               </span>
               <div className="flex items-center gap-2">
+                {analyzedDoc.downloadUrl && analyzedDoc.downloadUrl !== "#" && (
+                  <a
+                    href={analyzedDoc.downloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center"
+                  >
+                    <Button variant="outline" size="sm" leftIcon={Download}>
+                      Download Original
+                    </Button>
+                  </a>
+                )}
                 <Link to="/documents">
                   <Button variant="outline" size="sm">
                     View in My Documents

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 # Load .env file from server root
 env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv(dotenv_path=env_path, override=True)
 
 class Settings:
     PROJECT_NAME: str = "CivicSphere AI API"
@@ -40,5 +40,11 @@ class Settings:
     # Google Gemini AI Configuration
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+    # Cloudinary Configuration
+    CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+    CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
+    CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
+    CLOUDINARY_URL: str = os.getenv("CLOUDINARY_URL", "")
 
 settings = Settings()

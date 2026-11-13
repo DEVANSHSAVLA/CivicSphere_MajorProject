@@ -8,6 +8,10 @@ from pypdf import PdfReader
 from app.dependencies import get_current_user
 from app.database import get_database
 from app.services.gemini_service import summarize_civic_document
+from app.services.cloudinary_service import (
+    upload_document_to_cloudinary,
+    delete_cloudinary_asset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +94,15 @@ async def upload_and_summarize_document(
     doc_id = "doc-" + uuid.uuid4().hex[:10]
     uploaded_date = datetime.now().strftime("%d %b %Y")
 
+    # Upload original binary file to Cloudinary CDN
+    cdn_upload = upload_document_to_cloudinary(
+        file_bytes=contents,
+        filename=file.filename,
+        user_id=current_user["id"],
+    )
+    download_url = cdn_upload.get("secure_url") or "#"
+    cloudinary_public_id = cdn_upload.get("public_id", "")
+
     doc_record = {
         "id": doc_id,
         "name": file.filename,
@@ -102,7 +115,9 @@ async def upload_and_summarize_document(
         "summary": ai_summary.get("summary", ""),
         "keyPoints": ai_summary.get("keyPoints", []),
         "citations": ai_summary.get("citations", []),
-        "downloadUrl": "#",
+        "downloadUrl": download_url,
+        "cloudinary_public_id": cloudinary_public_id,
+        "storage": cdn_upload.get("storage", "local"),
         "user_id": current_user["id"],
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -113,6 +128,20 @@ async def upload_and_summarize_document(
         await db.documents.insert_one(dict(doc_record))
     except Exception as dbe:
         logger.warning(f"Could not persist document to MongoDB: {dbe}")
+
+    # Index document chunks into MongoDB vector store for RAG
+    try:
+        from app.services.rag_service import index_document_chunks
+        await index_document_chunks(
+            doc_id=doc_id,
+            title=file.filename,
+            text=text_content,
+            user_id=current_user["id"],
+            source="user_document",
+            category=ai_summary.get("category", "Legal Document")
+        )
+    except Exception as rage:
+        logger.warning(f"RAG document indexing warning: {rage}")
 
     # Remove internal _id for response
     doc_record.pop("_id", None)
@@ -141,10 +170,16 @@ async def delete_user_document(
     doc_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Deletes a document from MongoDB."""
+    """Deletes a document from MongoDB and cleans up Cloudinary CDN storage."""
     try:
         db = get_database()
+        doc = await db.documents.find_one({"id": doc_id, "user_id": current_user["id"]})
+        if doc and doc.get("cloudinary_public_id"):
+            delete_cloudinary_asset(doc["cloudinary_public_id"], resource_type="raw")
+
         await db.documents.delete_one({"id": doc_id, "user_id": current_user["id"]})
+        # Clean up corresponding vector RAG chunks
+        await db.rag_chunks.delete_many({"doc_id": doc_id, "user_id": current_user["id"]})
         return {"status": "success", "message": "Document deleted"}
     except Exception as e:
         raise HTTPException(

@@ -8,6 +8,8 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import ChatSidebar from "../components/chat/ChatSidebar";
 import ChatMessage from "../components/chat/ChatMessage";
@@ -42,9 +44,115 @@ export default function Chat() {
   const [chatToDelete, setChatToDelete] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Voice Input (Speech-to-Text) State
+  const [isListening, setIsListening] = useState(false);
+  const [speechLanguage, setSpeechLanguage] = useState("en-IN");
+  const recognitionRef = useRef(null);
+  const baseInputBeforeVoiceRef = useRef("");
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const appliedPromptRef = useRef(location.state?.initialPrompt);
+
+  const isSpeechSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const stopVoiceInput = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      setIsListening(false);
+    }
+  };
+
+  const startVoiceInput = () => {
+    if (!isSpeechSupported) {
+      showToast(
+        "Voice input is not supported in this browser. Please use Google Chrome, Edge, or Brave.",
+        "error"
+      );
+      return;
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = speechLanguage;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      baseInputBeforeVoiceRef.current = input;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        let transcript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        const base = baseInputBeforeVoiceRef.current.trim();
+        const combined = base ? `${base} ${transcript.trim()}` : transcript.trim();
+        setInput(combined);
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === "not-allowed") {
+          showToast(
+            "Microphone access blocked. Please enable microphone permissions in your browser address bar.",
+            "error"
+          );
+        } else if (event.error !== "no-speech") {
+          showToast(`Voice input notice: ${event.error}`, "info");
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("Speech recognition startup error:", err);
+      setIsListening(false);
+      showToast("Could not start microphone: " + err.message, "error");
+    }
+  };
+
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      stopVoiceInput();
+    } else {
+      startVoiceInput();
+    }
+  };
+
+  // Clean up speech recognition on component unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   // Auto-scroll on new message
   useEffect(() => {
@@ -64,6 +172,9 @@ export default function Chat() {
   }, [location.state?.initialPrompt]);
 
   const handleSend = async (textToSend) => {
+    if (isListening) {
+      stopVoiceInput();
+    }
     const query = textToSend || input;
     if (!query.trim() || isSending) return;
 
@@ -295,6 +406,50 @@ export default function Chat() {
 
         {/* Input Bar at bottom matching Reference Image 5 */}
         <div className="p-3.5 border-t border-[#E5EAE8] bg-white">
+          {/* Active Voice Input Wave Banner */}
+          {isListening && (
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 mb-2 text-xs text-emerald-800 animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
+                </span>
+                <span className="font-semibold text-emerald-900">
+                  Listening... Speak now ({speechLanguage === "en-IN" ? "English" : "Hindi"})
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSpeechLanguage((prev) => (prev === "en-IN" ? "hi-IN" : "en-IN"))}
+                  className="text-[11px] px-2 py-1 rounded-md bg-white border border-emerald-300 hover:bg-emerald-100 font-medium transition cursor-pointer text-emerald-800 shadow-2xs"
+                  title="Switch between English and Hindi voice recognition"
+                >
+                  {speechLanguage === "en-IN" ? "Switch to Hindi (हिन्दी)" : "Switch to English"}
+                </button>
+                <button
+                  type="button"
+                  onClick={stopVoiceInput}
+                  className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 font-medium transition shadow-xs cursor-pointer"
+                >
+                  Done Speaking
+                </button>
+                {input.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopVoiceInput();
+                      handleSend();
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-md bg-[#17212B] text-white hover:bg-black font-medium transition shadow-xs cursor-pointer flex items-center gap-1"
+                  >
+                    <Send className="w-3 h-3" /> Send Voice
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -317,16 +472,31 @@ export default function Chat() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message..."
+              placeholder={isListening ? "Listening... Speak your question now..." : "Type your message or tap the mic to speak..."}
               disabled={isSending}
               className="flex-1 bg-transparent border-0 text-xs sm:text-sm text-[#17212B] placeholder-[#94A3B8] outline-none py-2"
             />
+
+            {/* Voice Input (Microphone) Button */}
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={isSending}
+              className={`p-2 rounded-lg transition relative cursor-pointer ${
+                isListening
+                  ? "text-red-600 bg-red-50 hover:bg-red-100 ring-2 ring-red-400 animate-pulse"
+                  : "text-[#64748B] hover:text-[#17212B] hover:bg-slate-200/50"
+              }`}
+              title={isListening ? "Stop listening" : "Speak to send voice message (English / Hindi)"}
+            >
+              {isListening ? <MicOff className="w-4 h-4 text-red-600" /> : <Mic className="w-4 h-4" />}
+            </button>
 
             {/* Send Button */}
             <button
               type="submit"
               disabled={!input.trim() || isSending}
-              className="w-9 h-9 rounded-lg bg-[#15965B] hover:bg-[#087443] disabled:opacity-40 disabled:hover:bg-[#15965B] text-white flex items-center justify-center transition shadow-xs shrink-0"
+              className="w-9 h-9 rounded-lg bg-[#15965B] hover:bg-[#087443] disabled:opacity-40 disabled:hover:bg-[#15965B] text-white flex items-center justify-center transition shadow-xs shrink-0 cursor-pointer"
               title="Send message"
             >
               <Send className="w-4 h-4" />

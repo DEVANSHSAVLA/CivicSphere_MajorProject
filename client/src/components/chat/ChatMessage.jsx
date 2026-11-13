@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldCheck,
   ThumbsUp,
@@ -7,12 +7,51 @@ import {
   Check,
   ExternalLink,
   HelpCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 export default function ChatMessage({ message, onSelectPrompt }) {
   const isUser = message.sender === "user";
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState(null); // 'up' | 'down' | null
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Clean up speech synthesis when component unmounts
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handleToggleSpeak = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    let textToSpeak = message.intro ? message.intro + ". " : "";
+    if (message.points && message.points.length > 0) {
+      textToSpeak += message.points.join(". ") + ". ";
+    }
+    if (message.legalSummary) {
+      textToSpeak += message.legalSummary;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 1.0;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   const handleCopy = () => {
     let fullText = message.text || "";
@@ -57,8 +96,23 @@ export default function ChatMessage({ message, onSelectPrompt }) {
 
           <div className="flex items-center gap-1.5 text-slate-400">
             <button
+              onClick={handleToggleSpeak}
+              className={`p-1 rounded transition cursor-pointer ${
+                isSpeaking
+                  ? "text-[#15965B] bg-emerald-50 ring-1 ring-emerald-300 animate-pulse"
+                  : "hover:text-[#17212B]"
+              }`}
+              title={isSpeaking ? "Stop reading aloud" : "Read aloud (Text-to-Speech)"}
+            >
+              {isSpeaking ? (
+                <VolumeX className="w-3.5 h-3.5 text-[#15965B]" />
+              ) : (
+                <Volume2 className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <button
               onClick={handleCopy}
-              className="p-1 hover:text-[#17212B] rounded transition"
+              className="p-1 hover:text-[#17212B] rounded transition cursor-pointer"
               title="Copy response"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-[#15965B]" /> : <Copy className="w-3.5 h-3.5" />}

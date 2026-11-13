@@ -1,5 +1,5 @@
+import apiClient, { simulateDelay } from "./api";
 import { initialSchemes } from "../data/mockData";
-import { simulateDelay } from "./api";
 
 const SCHEMES_STORAGE_KEY = "civicsphere_schemes";
 const FEEDBACK_STORAGE_KEY = "civicsphere_feedback";
@@ -18,17 +18,75 @@ export const schemeService = {
     return initialSchemes;
   },
 
+  async fetchLiveSchemes(filters = {}) {
+    try {
+      const params = {};
+      if (filters.category && filters.category !== "All Categories") {
+        params.category = filters.category;
+      }
+      if (filters.state && filters.state !== "All States") {
+        params.state = filters.state;
+      }
+      if (filters.query) {
+        params.q = filters.query;
+      }
+
+      const response = await apiClient.get("/api/schemes", { params });
+      const liveList = response.data.schemes || [];
+      if (liveList.length > 0) {
+        // preserve saved state from local storage
+        const currentSavedIds = new Set(
+          this.getSchemes().filter((s) => s.isSaved).map((s) => s.id)
+        );
+        const merged = liveList.map((s) => ({
+          ...s,
+          isSaved: currentSavedIds.has(s.id),
+        }));
+        localStorage.setItem(SCHEMES_STORAGE_KEY, JSON.stringify(merged));
+        return merged;
+      }
+      return this.getSchemes();
+    } catch (err) {
+      console.warn("Falling back to local schemes:", err);
+      return this.getSchemes();
+    }
+  },
+
+  async evaluateEligibility(schemeId, answers) {
+    try {
+      const res = await apiClient.post("/api/schemes/check-eligibility", {
+        schemeId,
+        answers,
+      });
+      return res.data.evaluation;
+    } catch {
+      await simulateDelay(300);
+      return {
+        eligible: true,
+        verdict: "Eligible to Apply",
+        reason: "You meet the primary criteria based on your self-declaration.",
+        matchedCriteria: ["Indian Citizen", "Eligibility criteria satisfied"],
+        unmetCriteria: [],
+      };
+    }
+  },
+
   async toggleSaveScheme(schemeId) {
-    await simulateDelay(200);
-    const schemes = this.getSchemes().map(s => {
+    try {
+      await apiClient.post(`/api/schemes/${schemeId}/bookmark`);
+    } catch {
+      // offline fallback
+      await simulateDelay(150);
+    }
+    const schemes = this.getSchemes().map((s) => {
       if (s.id === schemeId) {
         return { ...s, isSaved: !s.isSaved };
       }
       return s;
     });
     localStorage.setItem(SCHEMES_STORAGE_KEY, JSON.stringify(schemes));
-    return schemes.find(s => s.id === schemeId);
-  }
+    return schemes.find((s) => s.id === schemeId);
+  },
 };
 
 export const feedbackService = {

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -5,6 +6,7 @@ from app.schemas import ChatMessageRequest, ChatMessageResponse, CivicAIResponse
 from app.dependencies import get_current_user
 from app.database import get_database
 from app.services.gemini_service import generate_civic_guidance
+from app.services.rag_service import search_similar_chunks
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,8 @@ async def send_chat_message(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Receives user query, calls Gemini with grounded civic system prompt,
+    Receives user query, performs MongoDB Vector Similarity RAG lookup across
+    statutes and user documents, feeds retrieved evidence to Google Gemini,
     saves chat record in MongoDB, and returns structured citation-backed response.
     """
     if not settings.GEMINI_API_KEY:
@@ -29,11 +32,24 @@ async def send_chat_message(
             )
         )
 
+    # 1. Retrieve RAG Vector Similarity matches from MongoDB
+    rag_chunks = []
     try:
-        # Call Google Gemini
-        ai_data = generate_civic_guidance(
+        rag_chunks = await search_similar_chunks(
             query=req.message,
-            document_context=req.documentContext or ""
+            user_id=current_user["id"],
+            top_k=4
+        )
+    except Exception as re:
+        logger.warning(f"RAG vector similarity lookup warning: {re}")
+
+    try:
+        # 2. Call Google Gemini with grounded RAG evidence context in non-blocking thread
+        ai_data = await asyncio.to_thread(
+            generate_civic_guidance,
+            query=req.message,
+            document_context=req.documentContext or "",
+            rag_chunks=rag_chunks
         )
     except ValueError as ve:
         raise HTTPException(
@@ -47,7 +63,7 @@ async def send_chat_message(
             detail=f"Failed to generate civic response: {str(e)}"
         )
 
-    # Persist message and response in MongoDB
+    # 3. Persist message, RAG evidence metadata, and response in MongoDB
     try:
         db = get_database()
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -55,9 +71,12 @@ async def send_chat_message(
             "user_id": current_user["id"],
             "chat_id": req.chatId,
             "user_query": req.message,
+            "rag_chunks_retrieved": len(rag_chunks),
             "ai_response": ai_data,
             "created_at": timestamp_str,
         })
+    except Exception as dbe:
+        logger.warning(f"Could not log chat message to MongoDB: {str(dbe)}")
     except Exception as dbe:
         logger.warning(f"Could not log chat message to MongoDB: {str(dbe)}")
 

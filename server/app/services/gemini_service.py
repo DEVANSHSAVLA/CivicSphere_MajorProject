@@ -15,8 +15,9 @@ Your mission is to provide accurate, objective, and structured civic guidance fo
 Guidelines:
 1. Cover Indian Constitutional rights, statutory legislation (Bharatiya Nyaya Sanhita, Motor Vehicles Act, RTI Act 2005, Model Tenancy Act 2021, Consumer Protection Act 2019, Transfer of Property Act 1882, Information Technology Act 2000), and central/state welfare schemes.
 2. Ground all points in authentic codified law. Cite official Indian portals (indiacode.nic.in, myscheme.gov.in, legislative.gov.in, cybercrime.gov.in, rbi.org.in).
-3. Maintain neutrality, clarity, and empathy for citizens navigating public systems.
-4. Output MUST be valid JSON conforming to the following fields:
+3. If "Retrieved Statutory & Document Evidence" is provided, ground your response in the specific sections, penalties, and citizen rights extracted from those vector matches.
+4. Maintain neutrality, clarity, and empathy for citizens navigating public systems.
+5. Output MUST be valid JSON conforming to the following fields:
    - "intro": A concise, direct introductory overview answering the user's question.
    - "points": A list of 3 to 5 clear, actionable bullet points explaining their rights, eligibility, or procedures.
    - "legalSummary": A grounded 1-2 sentence statutory summary mentioning specific Acts/Sections or Ministry notifications.
@@ -89,11 +90,44 @@ def safe_parse_json(raw_text: str) -> dict:
         ]
     }
 
-def get_statutory_civic_fallback(query: str) -> dict:
+def get_statutory_civic_fallback(query: str, rag_chunks: list[dict] = None) -> dict:
     """Provides high-quality grounded civic guidance when AI models are temporarily unavailable."""
     q_lower = query.lower()
     ts = datetime.now().strftime("%I:%M %p")
     msg_id = f"m-{int(datetime.now().timestamp() * 1000)}"
+
+    # If RAG found strong statutory vector matches, use them directly to ground the fallback
+    if rag_chunks and len(rag_chunks) > 0 and rag_chunks[0].get("score", 0) >= 0.5:
+        top_chunk = rag_chunks[0]
+        top_title = top_chunk.get("title", "Indian Statutory Law")
+        sources = [
+            {"title": f"{top_title} (NeGD Law-as-Code)", "link": "https://www.indiacode.nic.in"},
+            {"title": "India Code Digital Repository", "link": "https://www.indiacode.nic.in"}
+        ]
+        
+        # Extract snippet preview
+        snippet = top_chunk.get("text", "")
+        summary_line = snippet[:300].replace("\n", " ").strip()
+        
+        return {
+            "id": msg_id,
+            "sender": "ai",
+            "intro": f"Based on statutory retrieval from {top_title}, here is codified legal guidance for '{query}':",
+            "points": [
+                f"Statutory Provision: {summary_line[:140]}...",
+                "You have codified rights under Indian Law to demand compliance and transparency from competent authorities.",
+                "Ensure formal communications cite the relevant Act and preserve postal or digital acknowledgments.",
+                "File an escalation through CPGRAMS or appellate tribunals if statutory deadlines are breached."
+            ],
+            "legalSummary": f"Grounded in {top_title} and enforced under Indian central legislative framework.",
+            "sources": sources,
+            "relatedQuestions": [
+                f"What are the specific penalties prescribed under {top_title}?",
+                "How do I file an appeal with the statutory regulatory authority?",
+                "What is the citizen grievance escalation timeline?"
+            ],
+            "timestamp": ts,
+        }
 
     if any(k in q_lower for k in ["scam", "fraud", "stole", "bank", "money", "upi", "cyber"]):
         return {
@@ -142,23 +176,41 @@ def get_statutory_civic_fallback(query: str) -> dict:
         "timestamp": ts,
     }
 
-def generate_civic_guidance(query: str, document_context: str = "") -> dict:
+def generate_civic_guidance(query: str, document_context: str = "", rag_chunks: list[dict] = None) -> dict:
     """
     Calls Google Gemini using the official google-genai SDK
-    with automatic fallback across active models (gemini-3.8-flash, gemini-3.5-flash-lite, gemini-3.6-flash).
+    with automatic fallback across active models (gemini-flash-lite-latest, gemini-pro-latest, gemini-flash-latest).
+    Integrates MongoDB Vector Similarity RAG chunks for grounded legal evidence.
     """
     if not settings.GEMINI_API_KEY:
         raise ValueError(
             "GEMINI_API_KEY is not configured. Please add your Gemini API key in server/.env."
         )
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    # Use 15s timeout so unresponsive models never freeze the pipeline
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={'timeout': 15000})
     
-    prompt = query
-    if document_context:
-        prompt = f"Attached Document Context:\n{document_context}\n\nCitizen Query:\n{query}"
+    prompt_parts = []
+    if rag_chunks:
+        rag_passages = []
+        for i, c in enumerate(rag_chunks, 1):
+            rag_passages.append(
+                f"[Source {i}: {c.get('title', 'Statute')} | Category: {c.get('category', 'Legal')} | Similarity: {c.get('score', 0):.2f}]\n"
+                f"{c.get('text', '').strip()}"
+            )
+        prompt_parts.append(
+            "=== RETRIEVED STATUTORY & CITIZEN EVIDENCE (MongoDB Vector Similarity RAG) ===\n" +
+            "\n\n".join(rag_passages) +
+            "\n==========================================================================="
+        )
 
-    models_to_try = [settings.GEMINI_MODEL, "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"]
+    if document_context:
+        prompt_parts.append(f"Attached Document Context:\n{document_context}")
+
+    prompt_parts.append(f"Citizen Query:\n{query}")
+    prompt = "\n\n".join(prompt_parts)
+
+    models_to_try = [settings.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-pro-latest", "gemini-flash-latest"]
     seen = set()
     candidate_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
 
@@ -181,13 +233,27 @@ def generate_civic_guidance(query: str, document_context: str = "") -> dict:
                 raise ValueError("Empty response received from model.")
 
             data = safe_parse_json(raw_text)
+
+            # Enrich sources with retrieved high-scoring RAG citations
+            sources = data.get("sources", [])
+            if not isinstance(sources, list):
+                sources = []
+
+            for rc in (rag_chunks or []):
+                score = rc.get("score", 0)
+                title = rc.get("title", "")
+                if score >= 0.55 and title:
+                    link = "https://www.indiacode.nic.in" if rc.get("source") == "nyaykosh_statute" else "#"
+                    if not any(title.lower() in s.get("title", "").lower() for s in sources if isinstance(s, dict)):
+                        sources.append({"title": f"{title} (Vector Grounded)", "link": link})
+
             return {
                 "id": f"m-{int(datetime.now().timestamp() * 1000)}",
                 "sender": "ai",
                 "intro": data.get("intro", ""),
                 "points": data.get("points", []),
                 "legalSummary": data.get("legalSummary", ""),
-                "sources": data.get("sources", []),
+                "sources": sources[:4],
                 "relatedQuestions": data.get("relatedQuestions", []),
                 "timestamp": datetime.now().strftime("%I:%M %p"),
             }
@@ -197,7 +263,7 @@ def generate_civic_guidance(query: str, document_context: str = "") -> dict:
             continue
 
     logger.warning(f"All Gemini models exhausted ({last_error}). Returning statutory fallback guidance.")
-    return get_statutory_civic_fallback(query)
+    return get_statutory_civic_fallback(query, rag_chunks=rag_chunks)
 
 DOC_SUMMARY_SYSTEM_PROMPT = """
 You are CivicSphere AI — an Evidence-Grounded Legal & Civic Document Analyzer for India.
@@ -227,12 +293,12 @@ def summarize_civic_document(document_text: str, filename: str) -> dict:
             "citations": ["Evidence Grounded Archive"]
         }
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={'timeout': 15000})
     
     truncated_text = document_text[:15000] if len(document_text) > 15000 else document_text
     prompt = f"Filename: {filename}\n\nDocument Text Content:\n{truncated_text}"
 
-    models_to_try = [settings.GEMINI_MODEL, "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"]
+    models_to_try = [settings.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-pro-latest", "gemini-flash-latest"]
     seen = set()
     candidate_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
 
