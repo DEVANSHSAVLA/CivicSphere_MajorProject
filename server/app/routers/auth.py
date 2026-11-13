@@ -2,6 +2,8 @@ import base64
 import uuid
 from datetime import timedelta
 from fastapi import APIRouter, Response, Request, HTTPException, status, Depends, UploadFile, File
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 from app.config import settings
 from app.schemas import (
     RegisterRequest,
@@ -225,17 +227,47 @@ async def refresh_session(request: Request, response: Response):
 async def google_auth(req: GoogleAuthRequest, response: Response):
     """
     Secure Google OAuth endpoint with MongoDB persistence.
-    Establishes the same backend-managed HTTP-only cookie session.
+    Verifies the cryptographically signed Google ID Token (credential) or allows dev fallback.
+    Establishes backend-managed HTTP-only cookie session.
     """
-    if not req.email:
+    email = None
+    name = None
+    avatar = None
+
+    if req.credential:
+        try:
+            id_info = id_token.verify_oauth2_token(
+                req.credential,
+                google_requests.Request(),
+                settings.GOOGLE_CLIENT_ID if settings.GOOGLE_CLIENT_ID else None
+            )
+            email = id_info.get("email")
+            if not email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Google token did not contain an email address."
+                )
+            name = id_info.get("name") or email.split("@")[0].replace(".", " ").title()
+            avatar = id_info.get("picture") or ""
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Google token verification failed: {str(e)}"
+            )
+    elif settings.ENVIRONMENT == "development" and req.email:
+        # Development mode fallback only
+        email = req.email.strip().lower()
+        name = req.name or email.split("@")[0].replace(".", " ").title()
+        avatar = req.avatar or ""
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google account email is required."
+            detail="Google ID token (credential) is required for secure authentication."
         )
-    email = req.email.strip().lower()
-    name = req.name or email.split("@")[0].replace(".", " ").title()
-    avatar = req.avatar or ""
-    
+
+    email = email.strip().lower()
     user = await get_user_by_email(email)
     if not user:
         random_pw = hash_password(uuid.uuid4().hex + "CivicSphereOAuth2026!")
@@ -289,8 +321,19 @@ async def upload_avatar(
 ):
     """
     Uploads a user avatar image to Cloudinary with automatic face-detection cropping (300x300).
+    Validates MIME type and file size (max 5MB).
     Saves the transformed CDN URL to the user document in MongoDB.
     """
+    ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
+
+    ext = file.filename.split(".")[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in ALLOWED_EXTENSIONS or (file.content_type and file.content_type not in ALLOWED_IMAGE_TYPES):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image format. Only JPEG, PNG, WEBP, and GIF files are supported."
+        )
+
     contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(
@@ -303,14 +346,11 @@ async def upload_avatar(
 
     # If Cloudinary is not yet configured or returned empty, create base64 fallback
     if not avatar_url:
-        ext = file.filename.split(".")[-1].lower() if "." in file.filename else "jpeg"
         b64 = base64.b64encode(contents).decode("utf-8")
-        avatar_url = f"data:image/{ext};base64,{b64}"
+        avatar_url = f"data:image/{ext or 'jpeg'};base64,{b64}"
 
     updated = await update_user_profile(
         user_id=current_user["id"],
-        name=current_user.get("name", ""),
-        phone=current_user.get("phone", ""),
         avatar=avatar_url
     )
     user_dict = dict(updated)

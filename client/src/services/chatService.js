@@ -24,6 +24,28 @@ export const chatService = {
     return [];
   },
 
+  async fetchRecentChatsFromServer() {
+    try {
+      const response = await apiClient.get("/api/chat/history");
+      const serverChats = response.data.chats || [];
+      if (serverChats.length > 0) {
+        const local = this.getRecentChats();
+        // Merge server and local chats by id
+        const map = new Map();
+        local.forEach((c) => map.set(c.id, c));
+        serverChats.forEach((c) => {
+          map.set(c.id, { ...(map.get(c.id) || {}), ...c });
+        });
+        const merged = Array.from(map.values());
+        localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(merged));
+        return merged;
+      }
+      return this.getRecentChats();
+    } catch {
+      return this.getRecentChats();
+    }
+  },
+
   getConversation(chatId) {
     if (!chatId || ["chat-1", "chat-2", "chat-3", "chat-4"].includes(chatId)) {
       return [];
@@ -38,6 +60,24 @@ export const chatService = {
       }
     }
     return [];
+  },
+
+  async fetchConversationFromServer(chatId) {
+    if (!chatId) return [];
+    try {
+      const response = await apiClient.get(`/api/chat/conversation/${chatId}`);
+      const messages = response.data.messages || [];
+      if (messages.length > 0) {
+        const stored = localStorage.getItem(CONVOS_STORAGE_KEY);
+        const convos = stored ? JSON.parse(stored) : {};
+        convos[chatId] = messages;
+        localStorage.setItem(CONVOS_STORAGE_KEY, JSON.stringify(convos));
+        return messages;
+      }
+      return this.getConversation(chatId);
+    } catch {
+      return this.getConversation(chatId);
+    }
   },
 
   async createNewChat(firstQuery = null) {
@@ -145,7 +185,13 @@ export const chatService = {
     return { userMsg, aiResponse, conversation: updatedConvo };
   },
 
-  deleteChat(chatId) {
+  async deleteChat(chatId) {
+    try {
+      await apiClient.delete(`/api/chat/conversation/${chatId}`);
+    } catch (err) {
+      console.warn("Backend chat delete failed, proceeding with local clear:", err);
+    }
+
     const chats = this.getRecentChats().filter(c => c.id !== chatId);
     localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats));
 
@@ -158,7 +204,12 @@ export const chatService = {
     return true;
   },
 
-  clearAllChats() {
+  async clearAllChats() {
+    try {
+      await apiClient.delete("/api/chat/history");
+    } catch (err) {
+      console.warn("Backend chat history clear failed, proceeding with local clear:", err);
+    }
     localStorage.removeItem(CHATS_STORAGE_KEY);
     localStorage.removeItem(CONVOS_STORAGE_KEY);
   }

@@ -36,6 +36,33 @@ async def get_schemes(
         "schemes": schemes
     }
 
+@router.get("/saved")
+@router.get("/user/saved")
+async def get_saved_schemes(current_user: dict = Depends(get_current_user)):
+    """
+    Returns the list of schemes bookmarked by the authenticated citizen in MongoDB.
+    """
+    try:
+        db = get_database()
+        records = await db.saved_schemes.find({"user_id": current_user["id"]}).to_list(100)
+        saved_ids = {r["scheme_id"] for r in records}
+        
+        all_schemes = get_all_schemes()
+        bookmarked = [
+            {**s, "isSaved": True}
+            for s in all_schemes
+            if s["id"] in saved_ids or s["slug"] in saved_ids
+        ]
+        return {
+            "status": "success",
+            "count": len(bookmarked),
+            "savedSchemeIds": list(saved_ids),
+            "schemes": bookmarked
+        }
+    except Exception as e:
+        logger.warning(f"Error fetching saved schemes: {e}")
+        return {"status": "success", "count": 0, "savedSchemeIds": [], "schemes": []}
+
 @router.get("/{scheme_id}")
 async def get_scheme_detail(scheme_id: str):
     """Fetches full specifications for a single government scheme."""

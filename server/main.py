@@ -1,21 +1,22 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db, close_db, get_database
-from app.routers import auth, chat, documents, schemes, legal, civic_knowledge
+from app.routers import auth, chat, documents, schemes, legal, civic_knowledge, feedback
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize MongoDB connection, indexes, and seed data
     await init_db()
-    # Auto-seed canonical statutes into MongoDB vector store for RAG
+    # Auto-seed canonical statutes into MongoDB vector store for RAG asynchronously
     try:
         from app.services.rag_service import seed_canonical_statutes_for_rag
-        await seed_canonical_statutes_for_rag()
+        asyncio.create_task(seed_canonical_statutes_for_rag())
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Could not auto-seed RAG statutes: {e}")
+        logging.getLogger(__name__).warning(f"Could not initiate RAG statute seeding: {e}")
     yield
     # Graceful shutdown
     await close_db()
@@ -45,6 +46,7 @@ app.include_router(documents.router)
 app.include_router(schemes.router)
 app.include_router(legal.router)
 app.include_router(civic_knowledge.router)
+app.include_router(feedback.router)
 
 @app.get("/")
 async def root():

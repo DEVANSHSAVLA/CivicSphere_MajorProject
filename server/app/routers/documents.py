@@ -1,3 +1,4 @@
+import asyncio
 import io
 import math
 import uuid
@@ -32,6 +33,16 @@ def extract_text_from_file(filename: str, contents: bytes) -> tuple[str, int]:
         except Exception as e:
             logger.warning(f"Error reading PDF with pypdf: {e}")
             text = f"PDF Document: {filename}"
+    elif ext in ("docx", "doc"):
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(contents))
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            text = "\n\n".join(paragraphs).strip()
+            pages = max(1, math.ceil(len(text) / 2500))
+        except Exception as e:
+            logger.warning(f"Error reading DOCX with python-docx: {e}")
+            text = f"DOCX Document: {filename}"
     elif ext in ("txt", "md", "csv"):
         try:
             text = contents.decode("utf-8", errors="ignore")
@@ -41,7 +52,7 @@ def extract_text_from_file(filename: str, contents: bytes) -> tuple[str, int]:
             text = filename
     else:
         try:
-            # Fallback text extraction for docx/other formats
+            # Fallback text extraction
             text = contents.decode("utf-8", errors="ignore")
             pages = 1
         except Exception:
@@ -73,15 +84,22 @@ async def upload_and_summarize_document(
             detail=f"Failed to read uploaded file: {str(e)}"
         )
 
+    MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB limit
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds the 20MB maximum limit."
+        )
+
     file_size_mb = f"{(len(contents) / (1024 * 1024)):.2f} MB"
     ext = file.filename.split(".")[-1].upper() if "." in file.filename else "DOC"
 
     # Extract text from document
     text_content, pages = extract_text_from_file(file.filename, contents)
 
-    # Call Gemini for grounded legal summary
+    # Call Gemini for grounded legal summary in non-blocking thread
     try:
-        ai_summary = summarize_civic_document(text_content, file.filename)
+        ai_summary = await asyncio.to_thread(summarize_civic_document, text_content, file.filename)
     except Exception as ge:
         logger.error(f"Gemini summarization error: {ge}")
         ai_summary = {
@@ -174,13 +192,21 @@ async def delete_user_document(
     try:
         db = get_database()
         doc = await db.documents.find_one({"id": doc_id, "user_id": current_user["id"]})
-        if doc and doc.get("cloudinary_public_id"):
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document '{doc_id}' not found."
+            )
+
+        if doc.get("cloudinary_public_id"):
             delete_cloudinary_asset(doc["cloudinary_public_id"], resource_type="raw")
 
         await db.documents.delete_one({"id": doc_id, "user_id": current_user["id"]})
         # Clean up corresponding vector RAG chunks
         await db.rag_chunks.delete_many({"doc_id": doc_id, "user_id": current_user["id"]})
         return {"status": "success", "message": "Document deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

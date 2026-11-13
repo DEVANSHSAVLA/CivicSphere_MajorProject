@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Clock,
@@ -24,15 +24,21 @@ export default function ChatHistory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState(null);
 
+  useEffect(() => {
+    chatService.fetchRecentChatsFromServer().then((updated) => {
+      if (updated && updated.length > 0) setChats(updated);
+    });
+  }, []);
+
   const filteredChats = chats.filter((c) =>
     c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.preview?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (chatToDelete) {
-      chatService.deleteChat(chatToDelete.id);
+      await chatService.deleteChat(chatToDelete.id);
       setChats(chatService.getRecentChats());
       showToast("Conversation deleted from history", "info");
       setChatToDelete(null);

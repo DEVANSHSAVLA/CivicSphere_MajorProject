@@ -171,25 +171,44 @@ export default function ChatMessage({ message, onSelectPrompt }) {
               <span>Sources & Statutory Citations</span>
             </p>
             <div className="space-y-1.5">
-              {message.sources.map((src, i) => (
-                <a
-                  key={i}
-                  href={src.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-2 rounded-lg bg-white border border-[#E5EAE8] hover:border-[#15965B]/40 hover:bg-[#F5F8F7] transition text-xs font-semibold text-[#17212B] group"
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <span className="w-4 h-4 rounded-full bg-[#15965B]/10 text-[#087443] flex items-center justify-center text-[10px] shrink-0">
-                      {i + 1}
+              {message.sources.map((src, i) => {
+                const isValidLink = src.link && src.link !== "#" && (src.link.startsWith("http://") || src.link.startsWith("https://"));
+                if (isValidLink) {
+                  return (
+                    <a
+                      key={i}
+                      href={src.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-between p-2 rounded-lg bg-white border border-[#E5EAE8] hover:border-[#15965B]/40 hover:bg-[#F5F8F7] transition text-xs font-semibold text-[#17212B] group"
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <span className="w-4 h-4 rounded-full bg-[#15965B]/10 text-[#087443] flex items-center justify-center text-[10px] shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="truncate group-hover:text-[#15965B] transition-colors">
+                          {src.title}
+                        </span>
+                      </span>
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#15965B] shrink-0 ml-2" />
+                    </a>
+                  );
+                }
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-2 rounded-lg bg-[#F8FAF9] border border-[#E5EAE8] text-xs font-semibold text-[#17212B]"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <span className="w-4 h-4 rounded-full bg-[#15965B]/10 text-[#087443] flex items-center justify-center text-[10px] shrink-0">
+                        {i + 1}
+                      </span>
+                      <span className="truncate">{src.title}</span>
                     </span>
-                    <span className="truncate group-hover:text-[#15965B] transition-colors">
-                      {src.title}
-                    </span>
-                  </span>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#15965B] shrink-0 ml-2" />
-                </a>
-              ))}
+                    <span className="text-[10px] text-slate-400 font-medium">Official Record</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

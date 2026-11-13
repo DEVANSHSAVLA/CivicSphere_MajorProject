@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Query
@@ -172,7 +173,7 @@ async def consult_statute(req: LegalQueryRequest):
         if law:
             context = f"Statute: {law['title']}\nOverview: {law['overview']}\nKey Provisions: {law['keyProvisions']}\nPenalties: {law['penalties']}"
 
-    result = generate_civic_guidance(query=req.query, document_context=context)
+    result = await asyncio.to_thread(generate_civic_guidance, query=req.query, document_context=context)
     return {
         "status": "success",
         "guidance": result

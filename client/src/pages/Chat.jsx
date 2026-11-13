@@ -171,6 +171,25 @@ export default function Chat() {
     }
   }, [location.state?.initialPrompt]);
 
+  // Sync recent chats and conversation from backend
+  useEffect(() => {
+    chatService.fetchRecentChatsFromServer().then((chats) => {
+      if (chats && chats.length > 0) {
+        setRecentChats(chats);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeChatId && activeChatId !== "new") {
+      chatService.fetchConversationFromServer(activeChatId).then((serverMsgs) => {
+        if (serverMsgs && serverMsgs.length > 0) {
+          setMessagesMap((prev) => ({ ...prev, [activeChatId]: serverMsgs }));
+        }
+      });
+    }
+  }, [activeChatId]);
+
   const handleSend = async (textToSend) => {
     if (isListening) {
       stopVoiceInput();
@@ -234,9 +253,9 @@ export default function Chat() {
     setChatToDelete(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (chatToDelete) {
-      chatService.deleteChat(chatToDelete);
+      await chatService.deleteChat(chatToDelete);
       const remaining = chatService.getRecentChats();
       setRecentChats(remaining);
       if (activeChatId === chatToDelete) {

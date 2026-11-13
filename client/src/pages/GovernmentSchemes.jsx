@@ -466,7 +466,7 @@ export default function GovernmentSchemes() {
 
               <div>
                 <label className="block text-xs font-bold text-[#17212B] mb-1">
-                  3. Do you have an active Aadhaar-linked bank account?
+                  3. Do you or your family own cultivable agricultural land?
                 </label>
                 <div className="flex gap-4 text-xs">
                   <label className="flex items-center gap-1.5 cursor-pointer">
@@ -480,7 +480,7 @@ export default function GovernmentSchemes() {
                       }
                       className="text-[#15965B]"
                     />
-                    <span>Yes, verified DBT account</span>
+                    <span>Yes, cultivable landholder</span>
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -493,7 +493,7 @@ export default function GovernmentSchemes() {
                       }
                       className="text-[#15965B]"
                     />
-                    <span>No</span>
+                    <span>No, non-landholding / other occupation</span>
                   </label>
                 </div>
               </div>

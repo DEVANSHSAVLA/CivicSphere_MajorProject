@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   User,
   Lock,
@@ -25,15 +25,14 @@ export default function ProfileSettings() {
   const fileInputRef = useRef(null);
 
   // Profile form state
-  const [profileData, setProfileData] = useState(() => ({
+  const [profileData, setProfileData] = useState({
     name: user?.name || "",
     email: user?.email || "",
     phone: user?.phone || "",
     avatar: user?.avatar || "",
-  }));
-  const [prevUser, setPrevUser] = useState(user);
-  if (user !== prevUser) {
-    setPrevUser(user);
+  });
+
+  useEffect(() => {
     if (user) {
       setProfileData({
         name: user.name || "",
@@ -42,7 +41,7 @@ export default function ProfileSettings() {
         avatar: user.avatar || "",
       });
     }
-  }
+  }, [user]);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Password form state

@@ -9,7 +9,7 @@ from app.database import get_database
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODELS = ["gemini-embedding-001", "gemini-embedding-2"]
+EMBEDDING_MODELS = ["text-embedding-004", "models/text-embedding-004"]
 
 def get_embedding_client():
     if not settings.GEMINI_API_KEY:
@@ -97,7 +97,7 @@ async def index_document_chunks(
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for idx, chunk in enumerate(chunks):
-            embedding = generate_embedding(chunk)
+            embedding = await asyncio.to_thread(generate_embedding, chunk)
             if not embedding:
                 continue
 
@@ -194,6 +194,10 @@ async def seed_canonical_statutes_for_rag():
     Seeds verified NeGD Nyaykosh laws into MongoDB vector store if not already present.
     Ensures RAG works immediately out-of-the-box without requiring manual document uploads.
     """
+    if not settings.GEMINI_API_KEY:
+        logger.info("RAG: GEMINI_API_KEY not configured; skipping automatic statute seeding.")
+        return
+
     try:
         db = get_database()
         existing = await db.rag_chunks.count_documents({"source": "nyaykosh_statute"})

@@ -22,9 +22,13 @@ function RealGoogleButton({ label = "Continue with Google" }) {
             headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
           }
         );
+        if (!userInfoRes.ok) {
+          throw new Error("Failed to verify Google user info.");
+        }
         const googleUser = await userInfoRes.json();
 
         await googleLogin({
+          credential: tokenResponse.id_token || tokenResponse.access_token || undefined,
           email: googleUser.email,
           name: googleUser.name || googleUser.email.split("@")[0],
           avatar: googleUser.picture || "",
@@ -75,53 +79,23 @@ function RealGoogleButton({ label = "Continue with Google" }) {
 }
 
 function FallbackGoogleButton({ label = "Continue with Google" }) {
-  const { googleLogin } = useAuth();
   const { showToast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from?.pathname || "/dashboard";
-  const [loading, setLoading] = useState(false);
 
-  const handleSimulatedGoogle = async () => {
-    const userEmail = window.prompt(
-      "Enter your Google Account email address to continue:",
-      ""
+  const handleInfo = () => {
+    showToast(
+      "Google OAuth Client ID is not configured. Please use email and password to sign in or register.",
+      "info"
     );
-    if (!userEmail) return;
-    if (!/\S+@\S+\.\S+/.test(userEmail.trim())) {
-      showToast("Please enter a valid email address.", "error");
-      return;
-    }
-    const cleanEmail = userEmail.trim().toLowerCase();
-    const cleanName = cleanEmail
-      .split("@")[0]
-      .replace(/[._-]/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-
-    setLoading(true);
-    try {
-      await googleLogin({
-        email: cleanEmail,
-        name: cleanName,
-        avatar: "",
-      });
-      showToast(`Signed in with Google account (${cleanEmail})`, "success");
-      navigate(from, { replace: true });
-    } catch (err) {
-      showToast(err.message || "Google sign in failed", "error");
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
     <button
       type="button"
-      onClick={handleSimulatedGoogle}
-      disabled={loading}
-      className="w-full flex items-center justify-center gap-3 py-2.5 px-4 border border-[#E5EAE8] rounded-xl text-xs sm:text-sm font-semibold text-[#17212B] bg-white hover:bg-[#F5F8F7] transition shadow-xs disabled:opacity-60 cursor-pointer"
+      onClick={handleInfo}
+      className="w-full flex items-center justify-center gap-3 py-2.5 px-4 border border-[#E5EAE8] rounded-xl text-xs sm:text-sm font-semibold text-slate-500 bg-[#F8FAF9] hover:bg-[#F1F5F3] transition shadow-xs cursor-pointer"
+      title="Google OAuth is disabled until VITE_GOOGLE_CLIENT_ID is set"
     >
-      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+      <svg className="w-5 h-5 shrink-0 opacity-70" viewBox="0 0 24 24">
         <path
           fill="#4285F4"
           d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -139,7 +113,7 @@ function FallbackGoogleButton({ label = "Continue with Google" }) {
           d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
         />
       </svg>
-      <span>{loading ? "Signing in..." : label}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -151,4 +125,3 @@ export default function GoogleSignInButton({ label = "Continue with Google" }) {
   }
   return <FallbackGoogleButton label={label} />;
 }
-

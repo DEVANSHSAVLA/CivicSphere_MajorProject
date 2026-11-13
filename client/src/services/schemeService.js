@@ -107,13 +107,26 @@ export const feedbackService = {
     return [];
   },
 
+  async fetchFeedbacksFromServer() {
+    try {
+      const response = await apiClient.get("/api/feedback");
+      const list = response.data.feedbacks || [];
+      if (list.length > 0) {
+        localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(list));
+        return list;
+      }
+      return this.getFeedbacks();
+    } catch {
+      return this.getFeedbacks();
+    }
+  },
+
   async submitFeedback({ rating, category, comment, user }) {
-    await simulateDelay(500);
     if (!rating) {
       throw new Error("Please select a star rating.");
     }
     const current = this.getFeedbacks();
-    const newFeedback = {
+    let newFeedback = {
       id: "fb-" + Date.now(),
       rating,
       category: category || "General",
@@ -121,6 +134,21 @@ export const feedbackService = {
       author: user?.name || "Anonymous Citizen",
       date: new Date().toLocaleDateString("en-GB", { day: 'numeric', month: 'short', year: 'numeric' }),
     };
+
+    try {
+      const response = await apiClient.post("/api/feedback", {
+        rating,
+        category: category || "General",
+        comment: comment || "",
+        author: user?.name || "Anonymous Citizen",
+      });
+      if (response.data?.feedback) {
+        newFeedback = response.data.feedback;
+      }
+    } catch (err) {
+      console.warn("Backend feedback submission fallback to local:", err);
+      await simulateDelay(250);
+    }
 
     const updated = [newFeedback, ...current];
     localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(updated));

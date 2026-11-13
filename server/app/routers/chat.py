@@ -77,11 +77,112 @@ async def send_chat_message(
         })
     except Exception as dbe:
         logger.warning(f"Could not log chat message to MongoDB: {str(dbe)}")
-    except Exception as dbe:
-        logger.warning(f"Could not log chat message to MongoDB: {str(dbe)}")
 
     return ChatMessageResponse(
         status="success",
         aiResponse=CivicAIResponse(**ai_data)
     )
+
+@router.get("/history")
+async def get_chat_history(current_user: dict = Depends(get_current_user)):
+    """
+    Returns user's distinct conversations summary from MongoDB.
+    """
+    try:
+        db = get_database()
+        pipeline = [
+            {"$match": {"user_id": current_user["id"]}},
+            {"$sort": {"created_at": -1}},
+            {
+                "$group": {
+                    "_id": "$chat_id",
+                    "chat_id": {"$first": "$chat_id"},
+                    "last_query": {"$first": "$user_query"},
+                    "last_updated": {"$first": "$created_at"},
+                    "message_count": {"$sum": 1}
+                }
+            },
+            {"$sort": {"last_updated": -1}},
+            {"$limit": 50}
+        ]
+        chats = await db.chat_history.aggregate(pipeline).to_list(50)
+        result = []
+        for c in chats:
+            q = c.get("last_query", "Civic Consultation")
+            title = q if len(q) <= 40 else q[:37] + "..."
+            result.append({
+                "id": c.get("chat_id"),
+                "title": title,
+                "preview": q,
+                "timestamp": c.get("last_updated"),
+                "messagesCount": c.get("message_count", 1)
+            })
+        return {"status": "success", "chats": result}
+    except Exception as e:
+        logger.warning(f"Error fetching chat history: {e}")
+        return {"status": "success", "chats": []}
+
+@router.get("/conversation/{chat_id}")
+async def get_conversation(chat_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Fetches full chronological messages for a specific conversation.
+    """
+    try:
+        db = get_database()
+        docs = await db.chat_history.find(
+            {"user_id": current_user["id"], "chat_id": chat_id},
+            {"_id": 0}
+        ).sort("created_at", 1).to_list(100)
+
+        messages = []
+        for idx, doc in enumerate(docs):
+            created_at = doc.get("created_at", "")
+            messages.append({
+                "id": f"msg-u-{idx}",
+                "sender": "user",
+                "text": doc.get("user_query", ""),
+                "timestamp": created_at
+            })
+            if "ai_response" in doc and isinstance(doc["ai_response"], dict):
+                ai_dict = dict(doc["ai_response"])
+                ai_dict["sender"] = "ai"
+                messages.append(ai_dict)
+
+        return {"status": "success", "chatId": chat_id, "messages": messages}
+    except Exception as e:
+        logger.warning(f"Error fetching conversation {chat_id}: {e}")
+        return {"status": "success", "chatId": chat_id, "messages": []}
+
+@router.delete("/conversation/{chat_id}")
+async def delete_conversation(chat_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Deletes a conversation history from MongoDB.
+    """
+    try:
+        db = get_database()
+        result = await db.chat_history.delete_many({
+            "user_id": current_user["id"],
+            "chat_id": chat_id
+        })
+        return {"status": "success", "deletedCount": result.deleted_count}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete conversation: {str(e)}"
+        )
+
+@router.delete("/history")
+async def clear_all_chat_history(current_user: dict = Depends(get_current_user)):
+    """
+    Clears all conversations for the authenticated user.
+    """
+    try:
+        db = get_database()
+        result = await db.chat_history.delete_many({"user_id": current_user["id"]})
+        return {"status": "success", "deletedCount": result.deleted_count}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear chat history: {str(e)}"
+        )
 
