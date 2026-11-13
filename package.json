@@ -1,4 +1,12 @@
 {
+  "name": "civicsphere",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd client && npm install && npm run build",
+    "dev": "cd client && npm run dev",
+    "lint": "cd client && npm run lint"
+  },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.4",
     "tailwindcss": "^4.3.4"
